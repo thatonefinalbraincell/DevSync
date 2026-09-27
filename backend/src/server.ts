@@ -22,7 +22,6 @@ const io = new SocketIOServer(server, {
   },
 });
 
-// User track map: roomId -> Map<socketId, UserInfo>
 interface ActiveUser {
   socketId: string;
   id: string;
@@ -34,25 +33,34 @@ interface ActiveUser {
 
 const roomUsersMap = new Map<string, Map<string, ActiveUser>>();
 
-// User colors array for assignment
-const USER_COLORS = [
-  "#10B981", // Emerald Green (Arjun)
-  "#3B82F6", // Blue (Malavika)
-  "#8B5CF6", // Purple (Sreehari)
-  "#EC4899", // Pink
-  "#F59E0B", // Amber
-  "#06B6D4", // Cyan
-  "#EF4444", // Red
+// Google Docs Palette for user cursors
+const GOOGLE_DOCS_CURSOR_COLORS = [
+  "#E53935", // Red (User A)
+  "#1E88E5", // Blue (User B)
+  "#43A047", // Green (User C)
+  "#8E24AA", // Purple
+  "#FB8C00", // Orange
+  "#00ACC1", // Cyan
+  "#D81B60", // Pink
+  "#00897B", // Teal
+  "#F4511E", // Deep Orange
+  "#3F51B5", // Indigo
 ];
 
-// --- REST API ENDPOINTS ---
+function getDeterministicUserColor(identifier: string, roomIndex: number): string {
+  let hash = 0;
+  for (let i = 0; i < identifier.length; i++) {
+    hash = identifier.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs((hash + roomIndex) % GOOGLE_DOCS_CURSOR_COLORS.length);
+  return GOOGLE_DOCS_CURSOR_COLORS[index];
+}
 
-// Health check
+// REST Endpoints
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Create Room
 app.post("/api/rooms", async (req, res) => {
   try {
     const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -64,7 +72,6 @@ app.post("/api/rooms", async (req, res) => {
   }
 });
 
-// Get Room with Files and Messages
 app.get("/api/rooms/:roomId", async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -75,47 +82,34 @@ app.get("/api/rooms/:roomId", async (req, res) => {
   }
 });
 
-// Create File in Room
 app.post("/api/rooms/:roomId/files", async (req, res) => {
   try {
     const { roomId } = req.params;
     const { name, language, content } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: "File name is required" });
-    }
+    if (!name) return res.status(400).json({ error: "File name is required" });
     const newFile = await createFile(roomId, name, language || "javascript", content || "");
-
-    // Notify room via socket
     io.to(roomId).emit("file-created", newFile);
-
     res.json(newFile);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Delete File in Room
 app.delete("/api/rooms/:roomId/files/:fileId", async (req, res) => {
   try {
     const { roomId, fileId } = req.params;
     await deleteFile(fileId, roomId);
-
-    // Notify room via socket
     io.to(roomId).emit("file-deleted", { fileId });
-
     res.json({ success: true, fileId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Run Code Endpoint
 app.post("/api/execute", async (req, res) => {
   try {
     const { language, code, stdin } = req.body;
-    if (!code) {
-      return res.status(400).json({ error: "Code content is required" });
-    }
+    if (!code) return res.status(400).json({ error: "Code content is required" });
     const result = await runCode(language || "javascript", code, stdin || "");
     res.json(result);
   } catch (error: any) {
@@ -123,13 +117,11 @@ app.post("/api/execute", async (req, res) => {
   }
 });
 
-// --- SOCKET.IO REAL-TIME EVENT HANDLERS ---
-
+// Socket.IO Handlers
 io.on("connection", (socket) => {
   let currentRoomId: string | null = null;
   let currentUser: ActiveUser | null = null;
 
-  // Join Room Event
   socket.on("join-room", async ({ roomId, user }: { roomId: string; user?: { id?: string; name?: string } }) => {
     currentRoomId = roomId;
     socket.join(roomId);
@@ -140,10 +132,10 @@ io.on("connection", (socket) => {
 
     const activeUsers = roomUsersMap.get(roomId)!;
     const userCount = activeUsers.size;
-    const assignedColor = USER_COLORS[userCount % USER_COLORS.length];
 
     const userId = user?.id || `user-${socket.id.substring(0, 5)}`;
     const userName = user?.name || `Coder #${Math.floor(1000 + Math.random() * 9000)}`;
+    const assignedColor = getDeterministicUserColor(userName + userId, userCount);
 
     currentUser = {
       socketId: socket.id,
@@ -154,31 +146,35 @@ io.on("connection", (socket) => {
 
     activeUsers.set(socket.id, currentUser);
 
-    // Broadcast updated user list to everyone in room
     const usersList = Array.from(activeUsers.values());
+
+    // Fetch latest room data to send room-state to joining socket
+    const room = await getOrCreateRoom(roomId);
+    socket.emit("room-state", {
+      roomId,
+      files: (room as any).files,
+      messages: (room as any).messages,
+      users: usersList,
+    });
+
+    // Broadcast updated user list to everyone in room
     io.to(roomId).emit("room-users", usersList);
 
-    // Broadcast system notification
     socket.to(roomId).emit("user-joined", {
       user: currentUser,
       message: `${currentUser.name} joined the room`,
     });
   });
 
-  // Code Editing Sync Event
   socket.on("code-change", async ({ roomId, fileId, content }: { roomId: string; fileId: string; content: string }) => {
-    // Broadcast immediately to peers in room (except sender)
     socket.to(roomId).emit("code-update", {
       fileId,
       content,
       senderSocketId: socket.id,
     });
-
-    // Update in database / memory
     await updateFileContent(fileId, roomId, content);
   });
 
-  // Multi-Cursor Sync Event
   socket.on(
     "cursor-move",
     ({
@@ -207,7 +203,6 @@ io.on("connection", (socket) => {
     }
   );
 
-  // User Typing Status
   socket.on("user-typing", ({ roomId, isTyping }: { roomId: string; isTyping: boolean }) => {
     if (currentUser) {
       socket.to(roomId).emit("typing-status", {
@@ -217,16 +212,18 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Room Chat Message Event
-  socket.on("send-message", async ({ roomId, text }: { roomId: string; text: string }) => {
-    if (!currentUser || !text.trim()) return;
+  socket.on("send-message", async ({ roomId, text, user }: { roomId: string; text: string; user?: { id: string; name: string } }) => {
+    if (!text || !text.trim()) return;
 
-    const savedMsg = await addChatMessage(roomId, currentUser.id, currentUser.name, currentUser.color, text);
+    // Resilient fallback if currentUser wasn't attached on reconnect
+    const senderId = currentUser?.id || user?.id || `user-${socket.id.substring(0, 5)}`;
+    const senderName = currentUser?.name || user?.name || "Coder";
+    const senderColor = currentUser?.color || getDeterministicUserColor(senderName + senderId, 0);
 
+    const savedMsg = await addChatMessage(roomId, senderId, senderName, senderColor, text.trim());
     io.to(roomId).emit("new-message", savedMsg);
   });
 
-  // Leave / Disconnect
   const handleUserLeave = () => {
     if (currentRoomId && roomUsersMap.has(currentRoomId)) {
       const activeUsers = roomUsersMap.get(currentRoomId)!;
@@ -250,5 +247,5 @@ io.on("connection", (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 CollabCode Backend running on http://localhost:${PORT}`);
+  console.log(`🚀 DevSync Backend running on http://localhost:${PORT}`);
 });
