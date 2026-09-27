@@ -1,10 +1,10 @@
-# 🚀 DevSync
+#  DevSync
 
 **DevSync** is a modern, real-time collaborative code editor built for developers, pair programming, technical interviews, and classrooms. It features **Yjs CRDT conflict resolution**, **Google Docs-style multi-user cursor tracking**, **live room chat**, and an **integrated multi-language code execution engine**.
 
 ---
 
-## 🌟 Key Features
+##  Key Features
 
 - ⚡ **Yjs CRDT Conflict Resolution**: Guarantees zero text overwriting or data loss during concurrent typing using Conflict-Free Replicated Data Types.
 - 🟢 **Live Multi-Cursor Presence**: Displays real-time vertical cursor lines and floating user name tags in constant, distinct colors (like Google Docs).
