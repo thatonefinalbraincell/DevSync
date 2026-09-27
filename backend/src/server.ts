@@ -5,6 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { getOrCreateRoom, updateFileContent, createFile, deleteFile, addChatMessage } from "./lib/db";
 import { runCode } from "./services/codeRunner";
+import { getOrCreateYDoc, initYFileText, applyCRDTUpdate, getYFileContent } from "./lib/crdt";
 
 dotenv.config();
 
@@ -88,6 +89,10 @@ app.post("/api/rooms/:roomId/files", async (req, res) => {
     const { name, language, content } = req.body;
     if (!name) return res.status(400).json({ error: "File name is required" });
     const newFile = await createFile(roomId, name, language || "javascript", content || "");
+    
+    // Initialize Yjs CRDT Y.Text for new file
+    initYFileText(roomId, newFile.id, newFile.content);
+
     io.to(roomId).emit("file-created", newFile);
     res.json(newFile);
   } catch (error: any) {
@@ -150,6 +155,14 @@ io.on("connection", (socket) => {
 
     // Fetch latest room data to send room-state to joining socket
     const room = await getOrCreateRoom(roomId);
+    
+    // Ensure Yjs CRDT instance is initialized for each file in room
+    if ((room as any).files) {
+      (room as any).files.forEach((file: any) => {
+        initYFileText(roomId, file.id, file.content);
+      });
+    }
+
     socket.emit("room-state", {
       roomId,
       files: (room as any).files,
@@ -166,6 +179,31 @@ io.on("connection", (socket) => {
     });
   });
 
+  // CRDT Yjs Binary Update Handler
+  socket.on(
+    "crdt-update",
+    async ({ roomId, fileId, update }: { roomId: string; fileId: string; update: string }) => {
+      try {
+        // Apply CRDT update to server Y.Doc instance
+        applyCRDTUpdate(roomId, update);
+        const latestContent = getYFileContent(roomId, fileId);
+
+        // Broadcast CRDT binary update to all other room members
+        socket.to(roomId).emit("crdt-update", {
+          fileId,
+          update,
+          senderSocketId: socket.id,
+        });
+
+        // Persist updated text content in database / memory
+        await updateFileContent(fileId, roomId, latestContent);
+      } catch (err) {
+        console.error("CRDT update error:", err);
+      }
+    }
+  );
+
+  // Legacy code change fallback
   socket.on("code-change", async ({ roomId, fileId, content }: { roomId: string; fileId: string; content: string }) => {
     socket.to(roomId).emit("code-update", {
       fileId,
@@ -215,7 +253,6 @@ io.on("connection", (socket) => {
   socket.on("send-message", async ({ roomId, text, user }: { roomId: string; text: string; user?: { id: string; name: string } }) => {
     if (!text || !text.trim()) return;
 
-    // Resilient fallback if currentUser wasn't attached on reconnect
     const senderId = currentUser?.id || user?.id || `user-${socket.id.substring(0, 5)}`;
     const senderName = currentUser?.name || user?.name || "Coder";
     const senderColor = currentUser?.color || getDeterministicUserColor(senderName + senderId, 0);
