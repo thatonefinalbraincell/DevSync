@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Room {
+  id        String        @id
+  name      String        @default("Collaborative Room")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  files     File[]
+  messages  ChatMessage[]
+}
+
+model File {
+  id        String   @id @default(uuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  name      String
+  path      String   @default("")
+  language  String   @default("cpp")
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roomId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String
+  userName  String
+  userColor String   @default("#10B981")
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([roomId])
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  avatarUrl String?
+  createdAt DateTime @default(now())
+}
