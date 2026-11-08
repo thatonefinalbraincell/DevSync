@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@layer base {
+  body.dark {
+    background-color: #141414;
+    color: #FFFFFF;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body.light {
+    background-color: #F5F5F7;
+    color: #1D1D1F;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Scrollbars Dark (Netflix Style) */
+body.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+body.dark ::-webkit-scrollbar-track {
+  background: #141414;
+}
+body.dark ::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 4px;
+}
+body.dark ::-webkit-scrollbar-thumb:hover {
+  background: #444444;
+}
+
+/* Scrollbars Light */
+body.light ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+body.light ::-webkit-scrollbar-track {
+  background: #F5F5F7;
+}
+body.light ::-webkit-scrollbar-thumb {
+  background: #D1D1D6;
+  border-radius: 4px;
+}
+body.light ::-webkit-scrollbar-thumb:hover {
+  background: #AEAEB2;
+}
+
+/* Monaco Remote Cursor Decorations - Google Docs Style */
+.remote-cursor {
+  position: absolute;
+  width: 2.5px !important;
+  height: 100% !important;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 1 !important;
+}
+
+.remote-cursor-tooltip {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #ffffff !important;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  opacity: 1 !important;
+}
+
+.remote-selection {
+  position: absolute;
+  opacity: 0.2;
+  pointer-events: none;
+}
