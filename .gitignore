@@ -24,3 +24,6 @@ build/
 *.log
 .DS_Store
 Thumbs.db
+
+# Private Local Documentation
+ARCHITECTURE_AND_SETUP_GUIDE.txt
