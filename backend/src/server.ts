@@ -10,9 +10,23 @@ import { getOrCreateYDoc, initYFileText, applyCRDTUpdate, getYFileContent } from
 dotenv.config();
 
 const PORT = process.env.PORT || 5000;
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 const app = express();
-app.use(cors({ origin: "*" }));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or same-origin)
+      if (!origin) return callback(null, true);
+      // In development or if wildcard configured, allow all
+      if (FRONTEND_URL === "*" || origin === FRONTEND_URL || origin === "http://localhost:3000" || origin.endsWith(".vercel.app")) {
+        return callback(null, true);
+      }
+      return callback(null, true); // Fallback allow to avoid blocking demo rooms
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 const server = http.createServer(app);
@@ -54,7 +68,7 @@ function getDeterministicUserColor(identifier: string, roomIndex: number): strin
     hash = identifier.charCodeAt(i) + ((hash << 5) - hash);
   }
   const index = Math.abs((hash + roomIndex) % GOOGLE_DOCS_CURSOR_COLORS.length);
-  return GOOGLE_DOCS_CURSOR_COLORS[index];
+  return GOOGLE_DOCS_CURSOR_COLORS[index] ?? "#1E88E5";
 }
 
 // REST Endpoints

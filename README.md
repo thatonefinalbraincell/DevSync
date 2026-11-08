@@ -159,4 +159,34 @@ npm run dev
 
 ---
 
+## 🌐 Production Deployment
+
+### 1. Backend (Render / Railway / Docker)
+> **Note**: Because the backend uses persistent WebSockets (`Socket.IO`), in-memory CRDT documents, and code execution, deploy it as a long-running service (not serverless).
+
+- **Option A: Render Web Service**
+  - **Root Directory**: `backend`
+  - **Build Command**: `npm install && npx prisma generate && npm run build`
+  - **Start Command**: `npm start`
+  - **Environment Variables**:
+    - `DATABASE_URL`: `postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres`
+    - `FRONTEND_URL`: `https://your-frontend.vercel.app`
+    - `PORT`: `5000`
+
+- **Option B: Docker (Railway / Fly.io / VPS)**
+  - Use [backend/Dockerfile](file:///backend/Dockerfile) which packages Node 20, Python 3, and `g++` (GCC) for full native C++, Python, and JS execution.
+
+### 2. Frontend (Vercel)
+- **Root Directory**: `frontend`
+- **Framework Preset**: Next.js
+- **Environment Variables**:
+  - `NEXT_PUBLIC_BACKEND_URL`: `https://your-backend.onrender.com` (no trailing slash)
+  - `NEXT_PUBLIC_SUPABASE_URL`: `https://[YOUR_REF].supabase.co`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: `your_supabase_anon_key`
+
+---
+
+## 📜 License
+
+Distributed under the MIT License. See `LICENSE` for more details.
 

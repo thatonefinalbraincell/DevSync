@@ -13,8 +13,44 @@ export interface ExecutionResult {
   exitCode: number;
 }
 
+// Security check to avoid malicious execution or process.env exfiltration
+function checkSecurityHazards(code: string): string | null {
+  const dangerousPatterns = [
+    /process\.env/i,
+    /child_process/i,
+    /fs\.unlink/i,
+    /fs\.rm/i,
+    /rm\s+-rf/i,
+    /mkfs/i,
+    /chmod/i,
+    /shutdown/i,
+    /__import__\s*\(\s*['"]os['"]\s*\)/i,
+    /import\s+os\s*;\s*os\.system/i,
+    /os\.system/i,
+    /subprocess/i,
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(code)) {
+      return "Security Alert: Execution blocked. Code contains potentially restricted system operations or environment access.";
+    }
+  }
+  return null;
+}
+
 export async function runCode(language: string, code: string, stdinInput: string = ""): Promise<ExecutionResult> {
   const startTime = Date.now();
+
+  const hazard = checkSecurityHazards(code);
+  if (hazard) {
+    return {
+      stdout: "",
+      stderr: hazard,
+      executionTime: 0,
+      exitCode: 1,
+    };
+  }
+
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "collabcode-runner-"));
 
   try {
@@ -150,7 +186,9 @@ function simulateCppExecution(code: string, startTime: number): ExecutionResult 
   let outputLines: string[] = [];
 
   for (const match of coutMatches) {
-    let rawText = match[1].trim();
+    const rawMatch = match[1];
+    if (!rawMatch) continue;
+    let rawText = rawMatch.trim();
     if (rawText.startsWith('"') && rawText.endsWith('"')) {
       outputLines.push(rawText.substring(1, rawText.length - 1).replace(/\\n/g, "\n"));
     } else if (rawText.includes("endl")) {

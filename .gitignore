@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# IDE and agents
+.agents/
+.cursor/
+.claude/
+.devin/
+.vscode/
+.idea/
+
+# System and logs
+*.log
+.DS_Store
+Thumbs.db

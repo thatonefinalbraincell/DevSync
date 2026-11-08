@@ -1,5 +1,9 @@
 /node_modules
-/.devin
+/dist
+/.env*
+/.devin/*
 /.agents
 /.cursor
 /.claude
+*.log
+.env
