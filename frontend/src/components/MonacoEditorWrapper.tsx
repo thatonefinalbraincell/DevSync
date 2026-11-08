@@ -18,6 +18,14 @@ interface MonacoEditorWrapperProps {
   incomingCRDTUpdate?: string | null;
 }
 
+interface UserWidgetRecord {
+  widget: any;
+  domNode: HTMLElement;
+  badge: HTMLElement;
+  arrow: HTMLElement;
+  nameSpan: HTMLElement;
+}
+
 export const MonacoEditorWrapper: React.FC<MonacoEditorWrapperProps> = ({
   value,
   language,
@@ -30,7 +38,9 @@ export const MonacoEditorWrapper: React.FC<MonacoEditorWrapperProps> = ({
   incomingCRDTUpdate,
 }) => {
   const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
   const decorationsRef = useRef<string[]>([]);
+  const widgetsMapRef = useRef<Map<string, UserWidgetRecord>>(new Map());
   const ydocRef = useRef<Y.Doc | null>(null);
   const isSelfChangeRef = useRef(false);
   const isDark = theme === "dark";
@@ -40,8 +50,9 @@ export const MonacoEditorWrapper: React.FC<MonacoEditorWrapperProps> = ({
     ydocRef.current = new Y.Doc();
   }
 
-  const handleEditorMount: OnMount = (editor) => {
+  const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    monacoRef.current = monaco;
 
     try {
       const doc = ydocRef.current!;
@@ -66,6 +77,7 @@ export const MonacoEditorWrapper: React.FC<MonacoEditorWrapperProps> = ({
           const updatedContent = yText.toString();
           const model = editorRef.current.getModel();
           if (model && model.getValue() !== updatedContent) {
+            const selections = editorRef.current.getSelections();
             editorRef.current.executeEdits("crdt", [
               {
                 range: model.getFullModelRange(),
@@ -73,6 +85,9 @@ export const MonacoEditorWrapper: React.FC<MonacoEditorWrapperProps> = ({
                 forceMoveMarkers: true,
               },
             ]);
+            if (selections) {
+              editorRef.current.setSelections(selections);
+            }
           }
           isSelfChangeRef.current = false;
         }
@@ -124,35 +139,128 @@ export const MonacoEditorWrapper: React.FC<MonacoEditorWrapperProps> = ({
     }
   };
 
-  // Sync Remote Cursors (Google Docs style: Always visible)
+  // Sync Remote Cursors and Floating Name Bubbles
   useEffect(() => {
-    if (!editorRef.current) return;
+    if (!editorRef.current || !monacoRef.current) return;
 
     const editor = editorRef.current;
-    const newDecorations: any[] = [];
-
+    const monaco = monacoRef.current;
     const activeRemoteUsers = remoteUsers.filter(
       (u) => u.currentFileId === activeFileId && u.cursor
     );
 
+    const activeUserSockets = new Set<string>();
+
+    // 1. Manage Floating Name Bubble Content Widgets
     activeRemoteUsers.forEach((user) => {
       if (!user.cursor) return;
+      activeUserSockets.add(user.socketId);
 
+      const { lineNumber, column } = user.cursor;
+      let record = widgetsMapRef.current.get(user.socketId);
+
+      if (!record) {
+        const domNode = document.createElement("div");
+        domNode.className = "remote-cursor-bubble-container";
+        domNode.style.pointerEvents = "none";
+        domNode.style.userSelect = "none";
+        domNode.style.zIndex = "60";
+        domNode.style.lineHeight = "1";
+
+        const badge = document.createElement("div");
+        badge.className = "remote-cursor-bubble-badge";
+        badge.style.backgroundColor = user.color;
+        badge.style.color = "#ffffff";
+        badge.style.fontSize = "10.5px";
+        badge.style.fontWeight = "600";
+        badge.style.padding = "2.5px 8px";
+        badge.style.borderRadius = "9999px";
+        badge.style.whiteSpace = "nowrap";
+        badge.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+        badge.style.position = "relative";
+        badge.style.display = "inline-flex";
+        badge.style.alignItems = "center";
+        badge.style.letterSpacing = "0.2px";
+        badge.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+        badge.style.transform = "translateY(-4px)";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.innerText = user.name;
+        badge.appendChild(nameSpan);
+
+        const arrow = document.createElement("div");
+        arrow.style.position = "absolute";
+        arrow.style.bottom = "-3.5px";
+        arrow.style.left = "8px";
+        arrow.style.width = "0";
+        arrow.style.height = "0";
+        arrow.style.borderLeft = "3.5px solid transparent";
+        arrow.style.borderRight = "3.5px solid transparent";
+        arrow.style.borderTop = `3.5px solid ${user.color}`;
+        badge.appendChild(arrow);
+
+        domNode.appendChild(badge);
+
+        let currentPosition = { lineNumber, column };
+
+        const widget = {
+          getId: () => `widget-remote-user-${user.socketId}`,
+          getDomNode: () => domNode,
+          getPosition: () => ({
+            position: currentPosition,
+            preference: [
+              monaco.editor.ContentWidgetPositionPreference.ABOVE,
+              monaco.editor.ContentWidgetPositionPreference.BELOW,
+            ],
+          }),
+        };
+
+        editor.addContentWidget(widget);
+
+        record = { widget, domNode, badge, arrow, nameSpan };
+        widgetsMapRef.current.set(user.socketId, record);
+      } else {
+        // Update user properties if changed
+        record.badge.style.backgroundColor = user.color;
+        record.arrow.style.borderTop = `3.5px solid ${user.color}`;
+        if (record.nameSpan.innerText !== user.name) {
+          record.nameSpan.innerText = user.name;
+        }
+
+        // Update widget coordinates
+        record.widget.getPosition = () => ({
+          position: { lineNumber, column },
+          preference: [
+            monaco.editor.ContentWidgetPositionPreference.ABOVE,
+            monaco.editor.ContentWidgetPositionPreference.BELOW,
+          ],
+        });
+
+        editor.layoutContentWidget(record.widget);
+      }
+    });
+
+    // Remove widgets for users who left or switched files
+    widgetsMapRef.current.forEach((record, socketId) => {
+      if (!activeUserSockets.has(socketId)) {
+        try {
+          editor.removeContentWidget(record.widget);
+        } catch (_) {}
+        widgetsMapRef.current.delete(socketId);
+      }
+    });
+
+    // 2. Manage Vertical Cursor Caret Lines (0-width ranges)
+    const newDecorations: any[] = [];
+    activeRemoteUsers.forEach((user) => {
+      if (!user.cursor) return;
       const { lineNumber, column } = user.cursor;
 
       newDecorations.push({
-        range: {
-          startLineNumber: lineNumber,
-          startColumn: column,
-          endLineNumber: lineNumber,
-          endColumn: column + 1,
-        },
+        range: new monaco.Range(lineNumber, column, lineNumber, column),
         options: {
-          className: `remote-cursor-${user.socketId}`,
-          after: {
-            content: ` ${user.name}`,
-            inlineClassName: `remote-tooltip-${user.socketId}`,
-          },
+          className: `remote-caret-${user.socketId}`,
+          isWholeLine: false,
         },
       });
     });
@@ -160,33 +268,33 @@ export const MonacoEditorWrapper: React.FC<MonacoEditorWrapperProps> = ({
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
   }, [remoteUsers, activeFileId]);
 
+  // Clean up content widgets on unmount
+  useEffect(() => {
+    return () => {
+      if (editorRef.current) {
+        const editor = editorRef.current;
+        widgetsMapRef.current.forEach((record) => {
+          try {
+            editor.removeContentWidget(record.widget);
+          } catch (_) {}
+        });
+        widgetsMapRef.current.clear();
+      }
+    };
+  }, []);
+
   return (
     <div className={`w-full h-full relative overflow-hidden ${isDark ? "bg-[#1e1e1e]" : "bg-white"}`}>
-      {/* Remote Cursor Dynamic Styles Injector (Always Visible) */}
+      {/* Remote Caret Vertical Line Styles */}
       <style jsx global>{`
         ${remoteUsers
           .map(
             (u) => `
-          .remote-cursor-${u.socketId} {
-            border-left: 2.5px solid ${u.color} !important;
-            background-color: ${u.color}15 !important;
-            opacity: 1 !important;
-          }
-          .remote-tooltip-${u.socketId} {
-            position: absolute;
-            top: -20px;
-            left: 0;
-            font-size: 10px;
-            font-weight: 600;
-            padding: 1px 6px;
-            border-radius: 3px;
-            background-color: ${u.color} !important;
-            color: #ffffff !important;
-            white-space: nowrap;
-            pointer-events: none;
-            z-index: 100;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-            opacity: 1 !important;
+          .remote-caret-${u.socketId} {
+            border-left: 2px solid ${u.color} !important;
+            margin-left: -1px !important;
+            pointer-events: none !important;
+            z-index: 45 !important;
           }
         `
           )
